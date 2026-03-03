@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+/* ── Reset & base ─────────────────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Google Sans',Arial,sans-serif;font-size:12px;color:#202124;background:#f8f9fa;overflow-x:hidden}
+a{color:#1a73e8;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Layout ───────────────────────────────────────────────────────────── */
+#loading,#err{display:flex;align-items:center;justify-content:center;height:200px;color:#80868b;font-size:13px;text-align:center;padding:16px}
+#err{color:#c5221f}
+#app{display:none;flex-direction:column;height:100vh}
+
+/* ── Filter panel ─────────────────────────────────────────────────────── */
+#filters{background:#fff;padding:10px 12px 8px;border-bottom:1px solid #e0e0e0;flex-shrink:0}
+.filter-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.filter-row label{width:80px;min-width:80px;font-size:11px;font-weight:600;color:#5f6368;text-transform:uppercase;letter-spacing:.3px}
+.filter-row select,.filter-row input{flex:1;height:26px;border:1px solid #dadce0;border-radius:4px;padding:0 6px;font-size:12px;color:#202124;background:#fff;outline:none}
+.filter-row select:focus,.filter-row input:focus{border-color:#1a73e8;box-shadow:0 0 0 2px rgba(26,115,232,.15)}
+.filter-row input[type=number]{width:60px;flex:none}
+.section-label{font-size:10px;font-weight:700;color:#80868b;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px}
+.clear-btn{display:block;width:100%;margin-top:6px;padding:5px;background:none;border:1px solid #dadce0;border-radius:4px;font-size:11px;color:#5f6368;cursor:pointer;text-align:center}
+.clear-btn:hover{background:#f1f3f4}
+
+/* ── Results toolbar ──────────────────────────────────────────────────── */
+#results-bar{display:flex;align-items:center;gap:6px;padding:7px 12px;background:#fff;border-bottom:1px solid #e0e0e0;flex-shrink:0}
+#result-count{flex:1;font-size:12px;color:#5f6368;font-weight:600}
+.action-btn{padding:4px 10px;font-size:11px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid #dadce0;background:#fff;color:#3c4043;white-space:nowrap}
+.action-btn:hover{background:#f1f3f4}
+.action-btn:active{background:#e8eaed}
+.action-btn.copied{background:#e6f4ea;border-color:#34a853;color:#137333}
+
+/* ── Results list ─────────────────────────────────────────────────────── */
+#results{flex:1;overflow-y:auto;padding:8px 10px 16px}
+.empty{text-align:center;color:#80868b;margin-top:40px;line-height:1.7;font-size:12px}
+.empty span{font-size:24px;display:block;margin-bottom:8px}
+
+/* ── Card ─────────────────────────────────────────────────────────────── */
+.card{background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:8px;transition:box-shadow .15s}
+.card:hover{box-shadow:0 1px 6px rgba(0,0,0,.12)}
+.card-name{font-size:13px;font-weight:700;color:#1a73e8;margin-bottom:1px}
+.card-agency{font-size:11px;color:#5f6368;margin-bottom:3px}
+.card-meta{font-size:11px;color:#3c4043;line-height:1.7;margin-bottom:4px}
+.card-meta span{display:inline-block;margin-right:8px}
+.card-reqs{font-size:10px;color:#5f6368;background:#f8f9fa;border-radius:4px;padding:3px 6px;margin-bottom:6px;line-height:1.6}
+.carriers{font-size:10px;color:#5f6368;margin-top:4px;font-style:italic}
+
+/* ── Pills ────────────────────────────────────────────────────────────── */
+.pills{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px}
+.pill{font-size:10px;font-weight:600;padding:2px 7px;border-radius:12px;line-height:1.5}
+.pill-g{background:#e6f4ea;color:#137333}       /* why matched */
+.pill-a{background:#fef7e0;color:#b05b00}       /* warning */
+.pill-r{background:#fce8e6;color:#c5221f}       /* restriction */
+
+/* ── Setup notice ─────────────────────────────────────────────────────── */
+.setup-notice{margin:12px;padding:12px;background:#fef7e0;border:1px solid #f9ab00;border-radius:8px;font-size:12px;line-height:1.6;color:#595400}
+.setup-notice strong{display:block;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<div id="loading">Loading underwriter data…</div>
+<div id="err"></div>
+
+<div id="app">
+
+  <!-- ── Filter panel ─────────────────────────────────────────────────── -->
+  <div id="filters">
+
+    <div class="filter-row">
+      <label>State</label>
+      <input id="f-state" list="state-opts" placeholder="OR, WA…" maxlength="20" oninput="scheduleSearch()">
+      <datalist id="state-opts"></datalist>
+    </div>
+
+    <div class="filter-row">
+      <label>Equip/LOB</label>
+      <select id="f-lob" onchange="scheduleSearch()">
+        <option value="">— Any —</option>
+      </select>
+    </div>
+
+    <div class="filter-row">
+      <label>New Venture</label>
+      <select id="f-nv" onchange="scheduleSearch()">
+        <option value="">Any</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+    </div>
+
+    <div class="filter-row">
+      <label>Yrs in Biz</label>
+      <input id="f-yrs" type="number" min="0" placeholder="0" oninput="scheduleSearch()" style="width:56px;flex:none">
+    </div>
+
+    <div class="filter-row">
+      <label>CDL Exp</label>
+      <input id="f-drv" type="number" min="0" placeholder="0" oninput="scheduleSearch()" style="width:56px;flex:none">
+      <span style="font-size:10px;color:#80868b">yrs</span>
+    </div>
+
+    <div class="section-label">Client has available:</div>
+
+    <div class="filter-row">
+      <label>Loss Runs</label>
+      <select id="f-lr" onchange="scheduleSearch()">
+        <option value="">Any</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+    </div>
+
+    <div class="filter-row">
+      <label>IFTA</label>
+      <select id="f-ifta" onchange="scheduleSearch()">
+        <option value="">Any</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+    </div>
+
+    <div class="filter-row">
+      <label>MVR</label>
+      <select id="f-mvr" onchange="scheduleSearch()">
+        <option value="">Any</option>
+        <option value="YES">YES</option>
+        <option value="NO">NO</option>
+      </select>
+    </div>
+
+    <div class="filter-row">
+      <label>Keywords</label>
+      <input id="f-kw" type="text" placeholder="e.g. Canal, flatbed…" oninput="scheduleSearch()">
+    </div>
+
+    <button class="clear-btn" onclick="clearFilters()">✕ Clear all filters</button>
+  </div>
+
+  <!-- ── Results toolbar ──────────────────────────────────────────────── -->
+  <div id="results-bar">
+    <span id="result-count">— matches</span>
+    <button id="btn-copy"   class="action-btn" onclick="copyCSV()">Copy CSV</button>
+    <button id="btn-export" class="action-btn" onclick="exportCSV()">Export</button>
+  </div>
+
+  <!-- ── Results list ─────────────────────────────────────────────────── -->
+  <div id="results"></div>
+
+</div><!-- #app -->
+
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────────────────────
+
+var allUW       = [];
+var userEmail   = '';
+var lastResults = [];
+var searchTimer = null;
+var logTimer    = null;
+
+// ── Bootstrap ────────────────────────────────────────────────────────────────
+
+google.script.run
+  .withSuccessHandler(init)
+  .withFailureHandler(onError)
+  .getInitialData();
+
+function init(data) {
+  allUW     = data.underwriters  || [];
+  userEmail = data.userEmail     || '';
+
+  // Populate LOB dropdown
+  var lobSel = document.getElementById('f-lob');
+  (data.lobOptions || []).forEach(function(opt) {
+    var o = document.createElement('option');
+    o.value = opt; o.textContent = opt;
+    lobSel.appendChild(o);
+  });
+
+  // Populate state datalist
+  var dl = document.getElementById('state-opts');
+  (data.stateOptions || []).forEach(function(s) {
+    var o = document.createElement('option'); o.value = s; dl.appendChild(o);
+  });
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display     = 'flex';
+
+  if (data.setupRequired) {
+    document.getElementById('results').innerHTML =
+      '<div class="setup-notice">' +
+      '<strong>⚠ No underwriter data found.</strong>' +
+      'Please ask your admin to run:<br>' +
+      '<em>Underwriter Tool → Setup / Initialize Tabs</em><br>' +
+      'then import the data CSV.' +
+      '</div>';
+    document.getElementById('result-count').textContent = '0 matches';
+    return;
+  }
+
+  runSearch();
+}
+
+function onError(err) {
+  document.getElementById('loading').style.display = 'none';
+  var el = document.getElementById('err');
+  el.textContent = 'Error loading data: ' + (err.message || err);
+  el.style.display = 'flex';
+}
+
+// ── Filter helpers ────────────────────────────────────────────────────────────
+
+function getFilters() {
+  return {
+    state          : v('f-state').toUpperCase().trim(),
+    lob            : v('f-lob'),
+    newVenture     : v('f-nv'),
+    yearsInBusiness: v('f-yrs'),
+    driverExp      : v('f-drv'),
+    lossRuns       : v('f-lr'),
+    ifta           : v('f-ifta'),
+    mvr            : v('f-mvr'),
+    keywords       : v('f-kw').trim()
+  };
+}
+
+function v(id) { return document.getElementById(id).value || ''; }
+
+function clearFilters() {
+  ['f-state','f-lob','f-nv','f-yrs','f-drv','f-lr','f-ifta','f-mvr','f-kw']
+    .forEach(function(id) { document.getElementById(id).value = ''; });
+  runSearch();
+}
+
+// ── Debounce ──────────────────────────────────────────────────────────────────
+
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 200);
+}
+
+// ── Matching logic ────────────────────────────────────────────────────────────
+
+function tokenize(str) {
+  if (!str || !str.trim()) return [];
+  return str.split(/[,;\n\/]/)
+    .map(function(s) { return s.trim().toUpperCase(); })
+    .filter(Boolean);
+}
+
+function matchState(uwStates, userState) {
+  if (!userState) return { match: true, isExact: false };
+  var tokens = tokenize(uwStates);
+  if (!tokens.length ||
+      tokens.indexOf('ALL') !== -1 ||
+      tokens.indexOf('ALL STATES') !== -1)
+    return { match: true, isExact: false };
+  var exact = tokens.indexOf(userState) !== -1;
+  return { match: exact, isExact: exact };
+}
+
+function matchLOB(uwLines, uwTypes, userLOB) {
+  if (!userLOB) return { match: true, isExact: false };
+  var combined = (uwLines || '') + ',' + (uwTypes || '');
+  var tokens   = tokenize(combined);
+  if (tokens.indexOf('ALL') !== -1) return { match: true, isExact: false };
+  var exact = tokens.indexOf(userLOB.toUpperCase().trim()) !== -1;
+  return { match: exact, isExact: exact };
+}
+
+function matchNewVenture(uwOK, userNV) {
+  if (!userNV || userNV !== 'YES') return true;
+  return (uwOK || '').toUpperCase().trim() === 'YES';
+}
+
+function matchMin(uwMin, userVal) {
+  var min  = parseFloat(uwMin)   || 0;
+  var user = parseFloat(userVal) || 0;
+  return user >= min;
+}
+
+/**
+ * Requirement gate (Loss Runs / IFTA / MVR).
+ * If UW requires it AND user explicitly said NO → block.
+ * If user left blank → permissive (show all).
+ */
+function matchRequirement(uwReq, userHas) {
+  if ((uwReq || '').toUpperCase().trim() !== 'YES') return true;
+  if (!userHas) return true;  // blank = don't filter
+  return userHas.toUpperCase() === 'YES';
+}
+
+function matchKeywords(uw, keywords) {
+  if (!keywords) return true;
+  var hay = Object.values(uw).join(' ').toLowerCase();
+  return keywords.toLowerCase().split(/\s+/).every(function(kw) {
+    return hay.indexOf(kw) !== -1;
+  });
+}
+
+// ── Warning / why-matched builders ───────────────────────────────────────────
+
+function buildWarnings(uw) {
+  var w = [];
+  var r = (uw['Special Restrictions'] || '').trim();
+  if (r) w.push('⚠ ' + r);
+
+  if ((uw['Loss Runs Required (Yes/No)'] || '').toUpperCase() === 'YES')
+    w.push('📄 Loss runs required');
+  if ((uw['IFTA Required (Yes/No)']      || '').toUpperCase() === 'YES')
+    w.push('📋 IFTA reports required');
+  if ((uw['MVR Required (Yes/No)']       || '').toUpperCase() === 'YES')
+    w.push('🪪 MVR required (all drivers)');
+
+  var my = parseFloat(uw['Min Years in Business']) || 0;
+  if (my > 0) w.push('🗓 Min ' + my + ' yr' + (my !== 1 ? 's' : '') + ' in business');
+
+  var md = parseFloat(uw['Driver Experience Minimum (Years)']) || 0;
+  if (md > 0) w.push('🚚 Min ' + md + ' yr' + (md !== 1 ? 's' : '') + ' CDL exp');
+
+  var notes = (uw['Notes'] || '').trim();
+  if (notes) w.push('📝 ' + notes);
+
+  return w;
+}
+
+function buildWhyMatched(filters, sr, lr) {
+  var reasons = [];
+  if (filters.state) {
+    reasons.push(sr.isExact
+      ? '✓ Covers ' + filters.state + ' (explicit)'
+      : '✓ Covers all states');
+  }
+  if (filters.lob) {
+    reasons.push(lr.isExact
+      ? '✓ Accepts: ' + filters.lob
+      : '✓ Accepts all LOBs');
+  }
+  if (filters.newVenture  === 'YES') reasons.push('✓ New venture OK');
+  if (filters.lossRuns    === 'YES') reasons.push('✓ Loss runs: have');
+  if (filters.ifta        === 'YES') reasons.push('✓ IFTA: have');
+  if (filters.mvr         === 'YES') reasons.push('✓ MVR: have');
+  return reasons;
+}
+
+// ── Main search ───────────────────────────────────────────────────────────────
+
+function runSearch() {
+  var filters = getFilters();
+  var results = [];
+
+  allUW.forEach(function(uw) {
+    // State
+    var sr = matchState(uw['States (Abbrev)'], filters.state);
+    if (!sr.match) return;
+
+    // LOB
+    var lr = matchLOB(
+      uw['Lines Written (AL/GL/PD/MTC/WC)'],
+      uw['Business Types Accepted'],
+      filters.lob
+    );
+    if (!lr.match) return;
+
+    // New Venture
+    if (!matchNewVenture(uw['New Venture OK (Yes/No)'], filters.newVenture)) return;
+
+    // Years in business
+    if (!matchMin(uw['Min Years in Business'],             filters.yearsInBusiness)) return;
+
+    // Driver experience
+    if (!matchMin(uw['Driver Experience Minimum (Years)'], filters.driverExp)) return;
+
+    // Requirements
+    if (!matchRequirement(uw['Loss Runs Required (Yes/No)'], filters.lossRuns)) return;
+    if (!matchRequirement(uw['IFTA Required (Yes/No)'],      filters.ifta))     return;
+    if (!matchRequirement(uw['MVR Required (Yes/No)'],       filters.mvr))      return;
+
+    // Keywords
+    if (!matchKeywords(uw, filters.keywords)) return;
+
+    results.push({
+      uw         : uw,
+      stateExact : sr.isExact,
+      lobExact   : lr.isExact,
+      warnings   : buildWarnings(uw),
+      whyMatched : buildWhyMatched(filters, sr, lr)
+    });
+  });
+
+  // ── Ranking ────────────────────────────────────────────────────────────────
+  // 1. Exact state > ALL STATES
+  // 2. Exact LOB > LOB=ALL
+  // 3. Fewer warnings first
+  // 4. Alphabetical
+  results.sort(function(a, b) {
+    if (b.stateExact !== a.stateExact) return (b.stateExact ? 1 : 0) - (a.stateExact ? 1 : 0);
+    if (b.lobExact   !== a.lobExact)   return (b.lobExact   ? 1 : 0) - (a.lobExact   ? 1 : 0);
+    if (a.warnings.length !== b.warnings.length) return a.warnings.length - b.warnings.length;
+    return (a.uw['Underwriter Name'] || '').localeCompare(b.uw['Underwriter Name'] || '');
+  });
+
+  lastResults = results;
+  renderResults(results);
+
+  // Debounced audit log (1 s after last filter change)
+  clearTimeout(logTimer);
+  logTimer = setTimeout(function() {
+    google.script.run.logSearch({
+      state          : filters.state,
+      lob            : filters.lob,
+      newVenture     : filters.newVenture,
+      yearsInBusiness: filters.yearsInBusiness,
+      driverExp      : filters.driverExp,
+      lossRuns       : filters.lossRuns,
+      ifta           : filters.ifta,
+      mvr            : filters.mvr,
+      keywords       : filters.keywords,
+      resultsCount   : results.length
+    });
+  }, 1000);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+function renderResults(results) {
+  var countEl = document.getElementById('result-count');
+  countEl.textContent = results.length + ' match' + (results.length !== 1 ? 'es' : '');
+
+  var container = document.getElementById('results');
+
+  if (results.length === 0) {
+    container.innerHTML =
+      '<div class="empty"><span>🔎</span>' +
+      'No underwriters match the current filters.<br>' +
+      '<a href="#" onclick="clearFilters();return false">Clear all filters</a></div>';
+    return;
+  }
+
+  container.innerHTML = results.map(function(r) {
+    var uw = r.uw;
+
+    // Requirements summary line
+    var reqs = [
+      'NV:' + (uw['New Venture OK (Yes/No)'] || '—'),
+      'Min:' + (uw['Min Years in Business'] || '0') + 'yr',
+      'LR:'   + (uw['Loss Runs Required (Yes/No)'] || '—'),
+      'IFTA:' + (uw['IFTA Required (Yes/No)']      || '—'),
+      'MVR:'  + (uw['MVR Required (Yes/No)']        || '—')
+    ].join(' · ');
+
+    var lob = [
+      uw['Lines Written (AL/GL/PD/MTC/WC)'],
+      uw['Business Types Accepted']
+    ].filter(Boolean).join(' / ') || '—';
+
+    var whyHtml = r.whyMatched.length
+      ? '<div class="pills">' +
+        r.whyMatched.map(function(w) {
+          return '<span class="pill pill-g">' + esc(w) + '</span>';
+        }).join('') +
+        '</div>'
+      : '';
+
+    var warnHtml = r.warnings.length
+      ? '<div class="pills">' +
+        r.warnings.map(function(w) {
+          var cls = w.charAt(0) === '⚠' ? 'pill-r' : 'pill-a';
+          return '<span class="pill ' + cls + '">' + esc(w) + '</span>';
+        }).join('') +
+        '</div>'
+      : '';
+
+    var carriersLine = '';
+    var c1 = uw['Insurance Company names']       || '';
+    var c2 = uw['Other Insurance Company names'] || '';
+    var carriers = [c1, c2].filter(Boolean).join('; ');
+    if (carriers) carriersLine = '<div class="carriers">Carriers: ' + esc(carriers) + '</div>';
+
+    return '<div class="card">' +
+      '<div class="card-name">' + esc(uw['Underwriter Name']) + '</div>' +
+      (uw['Agency / Brokerage']
+        ? '<div class="card-agency">' + esc(uw['Agency / Brokerage']) + '</div>' : '') +
+      '<div class="card-meta">' +
+        (uw['Email']
+          ? '<span><a href="mailto:' + esc(uw['Email']) + '">' + esc(uw['Email']) + '</a></span>'
+          : '') +
+        (uw['Submission Method']
+          ? '<span>📤 ' + esc(uw['Submission Method']) + '</span>' : '') +
+      '</div>' +
+      '<div class="card-meta">' +
+        '<span>📍 ' + esc(uw['States (Abbrev)'] || '—') + '</span>' +
+      '</div>' +
+      '<div class="card-meta">' +
+        '<span>📦 ' + esc(lob) + '</span>' +
+      '</div>' +
+      '<div class="card-reqs">' + esc(reqs) + '</div>' +
+      whyHtml +
+      warnHtml +
+      carriersLine +
+      '</div>';
+  }).join('');
+}
+
+function esc(s) {
+  return (s || '').toString()
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── CSV export / clipboard ────────────────────────────────────────────────────
+
+var CSV_COLS = [
+  'Underwriter Name','Agency / Brokerage','Email','Submission Method',
+  'States (Abbrev)','Lines Written (AL/GL/PD/MTC/WC)','Business Types Accepted',
+  'New Venture OK (Yes/No)','Min Years in Business',
+  'Loss Runs Required (Yes/No)','IFTA Required (Yes/No)','MVR Required (Yes/No)',
+  'Driver Experience Minimum (Years)','Special Restrictions',
+  'Insurance Company names','Other Insurance Company names','Notes',
+  'Why Matched','Warnings'
+];
+
+function escCSV(val) {
+  var s = (val || '').toString();
+  if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1)
+    return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function buildCSV(results) {
+  var lines = [CSV_COLS.map(escCSV).join(',')];
+  results.forEach(function(r) {
+    lines.push(CSV_COLS.map(function(col) {
+      if (col === 'Why Matched') return escCSV(r.whyMatched.join('; '));
+      if (col === 'Warnings')    return escCSV(r.warnings.join('; '));
+      return escCSV(r.uw[col] || '');
+    }).join(','));
+  });
+  return lines.join('\r\n');
+}
+
+function copyCSV() {
+  if (!lastResults.length) return;
+  var csv = buildCSV(lastResults);
+  var btn = document.getElementById('btn-copy');
+  try {
+    // Modern clipboard API
+    navigator.clipboard.writeText(csv).then(function() { flashCopied(btn); });
+  } catch(e) {
+    // Fallback: textarea trick
+    var ta = document.createElement('textarea');
+    ta.value = csv;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    flashCopied(btn);
+  }
+}
+
+function flashCopied(btn) {
+  var orig = btn.textContent;
+  btn.textContent = '✓ Copied!';
+  btn.classList.add('copied');
+  setTimeout(function() { btn.textContent = orig; btn.classList.remove('copied'); }, 2200);
+}
+
+function exportCSV() {
+  if (!lastResults.length) return;
+  var csv  = buildCSV(lastResults);
+  var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href = url; a.download = 'underwriter-results.csv';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
+}
+</script>
+</body>
+</html>

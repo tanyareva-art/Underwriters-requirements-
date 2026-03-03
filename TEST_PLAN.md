@@ -1,195 +1,190 @@
-# Test Plan — Underwriter Decision Tool
+# Test Plan — Underwriter Decision Tool (Apps Script)
 
-## 1. Environment Setup
+## Setup
 
-- Build the app: `npm run build:dir`
-- Launch from `dist-electron/win-unpacked/Underwriter Decision Tool.exe`
-- Or in development: `npm run dev`
-- Have a test Google Sheet set up via `SETUP_GUIDE.md`
-
----
-
-## 2. Authentication Tests
-
-| # | Test | Expected |
-|---|---|---|
-| A1 | Sign in with correct domain account | Auth succeeds; user reaches Employee/Admin view |
-| A2 | Sign in with personal Gmail (wrong domain) | Error: "Access restricted to @domain accounts" |
-| A3 | Click Sign in without filling in Client ID / Secret / Domain | Error: "All three fields are required" |
-| A4 | Cancel OAuth in browser | Error message shown; user can retry |
-| A5 | Close app and reopen after successful auth | Stays logged in; goes directly to search screen |
-| A6 | Click Sign Out | Returns to Login screen; tokens cleared |
-| A7 | Token auto-refresh | After an hour, app silently refreshes the access token without requiring re-auth |
+- Complete INSTALL.md steps
+- Ensure Underwriters tab has all 18 rows imported
+- Open sidebar: Underwriter Tool → Open Sidebar
 
 ---
 
-## 3. First-Run Setup Tests
+## 1. State Matching
 
-| # | Test | Expected |
-|---|---|---|
-| S1 | Enter valid Sheet ID → Connect | All 3 tabs created; CSV imported; count shown |
-| S2 | Enter invalid/missing Sheet ID | API error shown; user can correct and retry |
-| S3 | Run setup on sheet that already has tabs | Tabs not duplicated; data appended (idempotent) |
-| S4 | Import CSV with all 18 rows | 18 rows appear in Underwriters tab |
-| S5 | Add self to Admin Emails → sign out → sign in | Admin tab appears in header |
-
----
-
-## 4. Matching Logic Tests (critical)
-
-### 4.1 State Filter
-
-| # | Underwriter States | Filter State | Expected Match |
+| # | UW States column | Filter input | Expected |
 |---|---|---|---|
-| M1 | `OR, WA, NC, SC, TN, MO, OH` | `OR` | ✓ (exact token) |
-| M2 | `OR, WA, NC, SC, TN, MO, OH` | `FL` | ✗ (not in list) |
-| M3 | ALL STATES | `FL` | ✓ (ALL matches any) |
-| M4 | ALL | `ZZ` | ✓ (ALL matches any) |
-| M5 | blank | `OR` | Treat as "no restriction" → ✓ |
-| M6 | `SC, NC, OH, MO, TN` | `WA` | ✗ |
-| M7 | *(no state filter selected)* | *(blank)* | All UW shown |
+| S1 | `OR, WA, NC, SC, TN, MO, OH` | `OR` | ✓ match (isExact=true → ranked higher) |
+| S2 | `OR, WA, NC, SC, TN, MO, OH` | `FL` | ✗ no match |
+| S3 | `ALL STATES` or `ALL` | `FL` | ✓ match (isExact=false) |
+| S4 | `SC, NC, OH, MO, TN` | `WA` | ✗ no match |
+| S5 | *(blank)* | `OR` | ✓ match (blank = no restriction) |
+| S6 | *(no filter — blank input)* | *(empty)* | All UW shown |
+| S7 | Mixed case `or, Wa` | `OR` | ✓ match (case-insensitive tokenize) |
+| S8 | Semicolon-separated `OR;WA;NC` | `WA` | ✓ match (tokenizer handles `;`) |
+| S9 | Newline-separated | `NC` | ✓ match (tokenizer handles `\n`) |
 
-### 4.2 LOB / Equipment Filter
+---
+
+## 2. LOB / Equipment Matching
 
 | # | Lines Written | Business Types | Filter LOB | Expected |
 |---|---|---|---|---|
-| M8  | ALL | — | `Dry Van` | ✓ (ALL covers all) |
-| M9  | — | `Dry Van, Reefer, Flatbed` | `Dry Van` | ✓ (exact token) |
-| M10 | — | `Dry Van, Reefer` | `Flatbed` | ✗ |
-| M11 | `AL, GL` | `Dry Van` | `GL` | ✓ (in Lines Written) |
-| M12 | `AL, GL` | `Dry Van` | `Reefer` | ✗ |
-| M13 | *(blank)* | *(blank)* | `Dry Van` | ✗ (no match, not ALL) |
-| M14 | *(no LOB filter)* | — | *(blank)* | All UW shown |
+| L1 | `ALL` | *(any)* | `Dry Van` | ✓ match (ALL covers all) |
+| L2 | *(blank)* | `Dry Van, Reefer, Flatbed` | `Dry Van` | ✓ match (exact token) |
+| L3 | *(blank)* | `Dry Van, Reefer` | `Flatbed` | ✗ no match |
+| L4 | `AL, GL` | `Dry Van` | `GL` | ✓ match (found in Lines Written) |
+| L5 | `AL, GL` | `Dry Van` | `Reefer` | ✗ no match |
+| L6 | *(no filter selected)* | *(any)* | *(blank)* | All UW shown |
+| L7 | ALL | *(blank)* | `WC` | ✓ (ALL matches any) |
 
-### 4.3 New Venture
+---
 
-| # | UW New Venture OK | Filter | Expected |
+## 3. New Venture
+
+| # | UW "New Venture OK" | Filter | Expected |
 |---|---|---|---|
-| M15 | YES | YES | ✓ |
-| M16 | NO  | YES | ✗ |
-| M17 | blank | YES | ✗ |
-| M18 | NO  | NO  | ✓ (NO filter doesn't block) |
-| M19 | NO  | blank | ✓ (blank doesn't block) |
+| NV1 | `YES` | `YES` | ✓ match |
+| NV2 | `NO` | `YES` | ✗ blocked |
+| NV3 | *(blank)* | `YES` | ✗ blocked (blank ≠ YES) |
+| NV4 | `NO` | `NO` | ✓ (NO filter doesn't block) |
+| NV5 | `NO` | *(blank)* | ✓ (blank doesn't block) |
+| NV6 | `YES` | `NO` | ✓ |
 
-### 4.4 Years in Business
+---
 
-| # | UW Min Years | User Years | Expected |
+## 4. Years in Business
+
+| # | UW Min Years | Filter value | Expected |
 |---|---|---|---|
-| M20 | 2   | 2   | ✓ (equal = pass) |
-| M21 | 2   | 3   | ✓ (user >= min) |
-| M22 | 2   | 1   | ✗ (user < min) |
-| M23 | 0   | 0   | ✓ |
-| M24 | blank | 0  | ✓ (blank min = 0) |
-| M25 | 3   | blank | ✓ (blank user = 0; 0 < 3 → ✗ for filter value 0… see note) |
+| Y1 | `2` | `2` | ✓ (equal passes) |
+| Y2 | `2` | `3` | ✓ (user ≥ min) |
+| Y3 | `2` | `1` | ✗ (user < min) |
+| Y4 | `0` | `0` | ✓ |
+| Y5 | *(blank)* | `0` | ✓ (blank min = 0) |
+| Y6 | `3` | *(blank)* | ✗ (blank = 0; 0 < 3 → blocked — conservative default) |
 
-> **Note M25:** When the user leaves Years in Business blank, it means "not filtering by years" — show all regardless of min. Blank input = 0 in number parse, so a UW requiring 3 years would be blocked if the user enters 0. The UI placeholder says "e.g. 2" — a blank field should genuinely be treated as "no constraint." *Implementation: `parseFloat('') === NaN` which `|| 0` makes 0. So blank user = 0 years → UW requiring 3 years is blocked. This is correct behaviour: if you don't specify years, the tool conservatively shows only UW with 0 min.*
+---
 
-### 4.5 Requirements (Loss Runs / IFTA / MVR)
+## 5. Driver CDL Experience
 
-| # | UW Requires | User Selection | Expected |
+| # | UW Driver Min | Filter | Expected |
 |---|---|---|---|
-| M26 | YES | YES | ✓ |
-| M27 | YES | NO  | ✗ |
-| M28 | YES | blank | ✓ (permissive default) |
-| M29 | NO  | NO  | ✓ |
-| M30 | NO  | YES | ✓ |
-| M31 | blank | NO | ✓ (blank = not required) |
+| D1 | `2` | `2` | ✓ |
+| D2 | `2` | `1` | ✗ |
+| D3 | *(blank)* | `0` | ✓ |
+| D4 | `2` | *(blank)* | ✗ (blank = 0; 0 < 2) |
 
-### 4.6 Driver Experience
+---
 
-| # | UW Min | User Exp | Expected |
+## 6. Requirements (Loss Runs / IFTA / MVR)
+
+| # | UW Requires | User Filter | Expected |
 |---|---|---|---|
-| M32 | 2 | 2 | ✓ |
-| M33 | 2 | 1 | ✗ |
-| M34 | blank | 0 | ✓ |
-
-### 4.7 Keywords
-
-| # | Keywords Input | Expected |
-|---|---|---|
-| M35 | `Canal` | Only UW whose data contains "Canal" |
-| M36 | `canal` | Case-insensitive match — same result as M35 |
-| M37 | `canal flatbed` | Both words must appear (AND logic) |
-| M38 | blank | No keyword filter — all matching UW shown |
+| R1 | `YES` | `YES` | ✓ match |
+| R2 | `YES` | `NO` | ✗ hard block |
+| R3 | `YES` | *(blank)* | ✓ permissive default |
+| R4 | `NO` | `NO` | ✓ |
+| R5 | `NO` | `YES` | ✓ |
+| R6 | *(blank)* | `NO` | ✓ (blank = not required) |
 
 ---
 
-## 5. Ranking Tests
-
-| # | Setup | Expected Order |
-|---|---|---|
-| R1 | 2 results: one with explicit state, one with ALL STATES | Explicit state first |
-| R2 | 2 results: one with explicit LOB, one with LOB=ALL | Explicit LOB first |
-| R3 | 2 results same specificity, different warning counts | Fewer warnings first |
-| R4 | 3 results same specificity, same warnings | Alphabetical by Underwriter Name |
-| R5 | Mix of all criteria | Stable sort; consistent on repeated queries |
-
----
-
-## 6. Employee UI Tests
-
-| # | Test | Expected |
-|---|---|---|
-| U1 | Apply filters → results update within 300ms | Debounced, responsive |
-| U2 | "Why Matched" column populates correctly | Green pills explaining each matching reason |
-| U3 | "Warnings" column shows restrictions | Amber pills; "Show more" for >2 warnings |
-| U4 | No results match | Empty state with "Clear all filters" button |
-| U5 | Click "Copy CSV" | Clipboard contains valid CSV with all result columns |
-| U6 | Click "Export CSV" | File download dialog; valid CSV file |
-| U7 | Click "Clear all" | All filters reset; full list shown |
-
----
-
-## 7. Admin UI Tests
-
-| # | Test | Expected |
-|---|---|---|
-| AD1 | Add new underwriter → save | Appears in list; new row in Google Sheet |
-| AD2 | Edit existing underwriter | Changes saved to correct row in Sheet |
-| AD3 | Delete underwriter → confirm | Row removed from Sheet; row index of others unchanged |
-| AD4 | Delete underwriter → cancel confirm dialog | No change |
-| AD5 | Save LOB options | New options appear in employee filter dropdown on reload |
-| AD6 | Add admin email → save | After re-login, that user gets Admin tab |
-| AD7 | Non-admin user | Admin tab not visible; cannot access admin routes |
-| AD8 | Search in admin table | Filters rows client-side instantly |
-
----
-
-## 8. Audit Log Tests
-
-| # | Test | Expected |
-|---|---|---|
-| L1 | Perform a search | New row in SearchLogs within seconds |
-| L2 | Log row content | Timestamp (ISO), email, filter values, result count |
-| L3 | Log contains no client PII | No client name, DOT number, or personal info |
-| L4 | Log failure (network down) | Search still works; log silently skipped |
-
----
-
-## 9. Edge Cases
+## 7. Special Restrictions
 
 | # | Scenario | Expected |
 |---|---|---|
-| E1 | All filters blank | All underwriters returned, sorted alphabetically |
-| E2 | State filter = "FL" (no UW covers FL) | 0 results; empty state message |
-| E3 | Underwriter with blank States column | Treated as no restriction → matches any state |
-| E4 | Underwriter with `NO` for all requirements | Matches even when user selects NO for all |
-| E5 | Google Sheet temporarily unavailable | Error message shown; app does not crash |
-| E6 | Underwriter row with all blank fields | Still appears if no hard-block filter fails |
-| E7 | LOB value with extra spaces ("  Dry Van  ") | Trimmed → matches "Dry Van" |
-| E8 | State tokens separated by semicolons | Tokenizer handles semicolons → matches correctly |
-| E9 | State tokens separated by newlines | Tokenizer handles newlines → matches correctly |
-| E10 | 100+ underwriters in sheet | Performance: filtering completes in <100ms |
-| E11 | Two identical underwriter rows | Both appear independently in results |
-| E12 | Admin deletes row, then undo in Google Sheets | Next app reload shows the restored row |
+| SR1 | UW has text in Special Restrictions | Never blocks; shown as ⚠ amber pill |
+| SR2 | UW has no Special Restrictions | No warning pill shown for that field |
+| SR3 | All filters match except restrictions | UW still appears; restriction pill displayed |
 
 ---
 
-## 10. Build & Installer Tests
+## 8. Keywords
+
+| # | Keyword input | Expected |
+|---|---|---|
+| K1 | `Canal` | Only UW whose combined data contains "canal" (case-insensitive) |
+| K2 | `canal flatbed` | Both words must appear (AND logic) |
+| K3 | *(blank)* | No keyword filter — all matching UW shown |
+| K4 | `Nirvana` | Matches UW with Nirvana in any column |
+
+---
+
+## 9. Ranking
+
+| # | Setup | Expected order |
+|---|---|---|
+| RK1 | Two matches: one explicit state `OR`, one `ALL STATES` | Explicit state first |
+| RK2 | Two matches: one explicit LOB, one `ALL` | Explicit LOB first |
+| RK3 | Same specificity, one has 2 warnings, other has 0 | Fewer warnings first |
+| RK4 | Same everything — names "Zeta" and "Alpha" | Alpha first |
+| RK5 | Re-run same search | Results identical (stable sort) |
+
+---
+
+## 10. Combined multi-filter tests
+
+| # | Filters | Expected |
+|---|---|---|
+| C1 | State=`OR`, LOB=`Dry Van`, NV=`YES` | Only UW that cover OR, accept Dry Van, AND allow new ventures |
+| C2 | State=`WA`, Yrs=`4`, LR=`YES`, IFTA=`YES` | Lori (PIU) and Brian (RPS) should both appear; both require 4 yrs in WA |
+| C3 | State=`OR`, NV=`YES`, Yrs=`0` | Progressive, Geico, National General, BHHC, Mike Kerr, others with NV=YES |
+| C4 | All filters blank | All 18 underwriters, sorted alphabetically |
+| C5 | State=`FL` (no UW covers FL) | 0 matches; empty state message shown |
+
+---
+
+## 11. UI / UX
 
 | # | Test | Expected |
 |---|---|---|
-| B1 | `npm run build` completes without errors | `dist-electron/` contains installer |
-| B2 | Installer runs on fresh Windows machine | App installs; desktop shortcut created |
-| B3 | Bundled CSV accessible in packaged app | Import succeeds using `process.resourcesPath` |
-| B4 | App name and icon display correctly | Taskbar shows correct name and icon |
+| U1 | Change any filter | Results update within ~300 ms (debounced) |
+| U2 | "Why matched" section | Green pills accurately describe each match reason |
+| U3 | "Warnings" section | Amber pills for requirements + restrictions; ⚠ red pill for Special Restrictions |
+| U4 | 0 results | Empty state with "Clear all filters" link |
+| U5 | Click "Copy CSV" | Clipboard contains header + result rows as valid CSV |
+| U6 | Click "Export" | Browser downloads `underwriter-results.csv` |
+| U7 | Click "✕ Clear all filters" | All fields reset; all UW shown |
+| U8 | Email shown as clickable mailto link | Clicking opens default email client |
+| U9 | State autocomplete datalist | Typing `O` shows `OH`, `OR` suggestions |
+
+---
+
+## 12. Audit Logging
+
+| # | Test | Expected |
+|---|---|---|
+| AL1 | Perform a search | New row appears in SearchLogs within ~2 seconds |
+| AL2 | Log row content | Timestamp (ISO), correct employee email, all filter values, result count |
+| AL3 | Log has no client PII | No client name, DOT, phone, or personal info in any column |
+| AL4 | Rapid filter changes | Only one log row per settled search (1 s debounce) |
+| AL5 | Log write fails (permissions issue) | Sidebar continues to work; error swallowed silently |
+
+---
+
+## 13. Setup & Admin
+
+| # | Test | Expected |
+|---|---|---|
+| A1 | Run `setupTool` on empty sheet | Creates Underwriters, Settings, SearchLogs tabs with correct headers |
+| A2 | Run `setupTool` when tabs already exist | No duplicates; existing data preserved |
+| A3 | Import via Drive — file not found | Clear error dialog; no crash |
+| A4 | Import valid CSV | Correct row count reported; rows visible in Underwriters tab |
+| A5 | Edit `lob_options` in Settings tab | After closing and reopening sidebar, new option appears in dropdown |
+| A6 | Add/edit rows directly in Underwriters tab | Sidebar reflects changes on next open (data fetched on load) |
+
+---
+
+## 14. Edge Cases
+
+| # | Scenario | Expected |
+|---|---|---|
+| E1 | UW with `ALL STATES` and explicit state UW both match | Explicit state ranks first |
+| E2 | Spaces around state tokens `" OR , WA "` | Trimmed correctly → matches `OR` filter |
+| E3 | States separated by `/` | Tokenizer splits on `/` → correct match |
+| E4 | Min Years blank | Treated as 0; never blocks based on years |
+| E5 | Min Driver Exp blank | Treated as 0; never blocks |
+| E6 | 6 employees searching simultaneously | Each sees their own results; SearchLogs captures each person's email independently |
+| E7 | Underwriter row with all blank fields | Appears for any search with no hard-block filters active |
+| E8 | Keywords with extra spaces `"  dry  van  "` | Split on whitespace → each term searched independently |
+| E9 | UW deleted from sheet by admin | Sidebar reflects change on next open |
+| E10 | Sheet temporarily slow / timeout | Sidebar shows error message; retry by closing and reopening |
